@@ -13,7 +13,7 @@ class FileOperator {
     public:
         void CreateFile(const char* pathname);
         void DestoryFile();
-        void WriteFile();
+        void WriteFile(const char* characters);
         void ReadFile();
 
     private:
@@ -31,6 +31,8 @@ class FileOperator {
         void ReadAll();
         void ReadFileBytes();
         void ReadSpecifyLabel();
+
+        char* JudgeFilePath();
 
     private:
         std::ifstream input_stream;

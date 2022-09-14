@@ -1,5 +1,8 @@
 #include <fstream>
+#include <cstdio>
 #include <iostream>
+#include <cstdlib>
+#include <algorithm>
 #include <string.h>
 #include "FileOperator.h"
 
@@ -13,23 +16,33 @@ FileOperator::~FileOperator() {
 
 // filter create method by input pathname
 void FileOperator::CreateFile(const char* pathname) {
-    memcpy(path_, (void*)pathname, sizeof(pathname));
-    for (int i = 0; i < sizeof(path_); ++i) {
-        if (path_[i] == '/') {
-            CreateFileSpecifyPath();
-            return;
-        }
+
+    if (!pathname) {
+        return;
     }
-    CreateFileCurPath();
-    return;
+
+    memcpy(path_, (void*)pathname, strlen(pathname));
+    char* ret = JudgeFilePath();
+
+    if (!*ret) {
+        CreateFileCurPath();
+        return;
+    }
+    CreateFileSpecifyPath();
 }
 
 void FileOperator::DestoryFile() {
-
+    std::remove(path_);
 }
 
-void FileOperator::WriteFile() {
-
+void FileOperator::WriteFile(const char* characters) {
+    output_stream.open(path_, std::ios::app | std::ios::out);
+    if (!output_stream) {
+        std::cerr << "open " << path_ << " failed!" << std::endl;
+        exit(1);
+    }
+    output_stream << characters << std::endl;
+    output_stream.close();
 }
 
 void FileOperator::ReadFile() {
@@ -41,6 +54,9 @@ void FileOperator::CreateFileCurPath() {
 }
 
 void FileOperator::CreateFileSpecifyPath() {
+    char* dst_path;
+    snprintf(dst_path, MAX_PATH_LENGTH + 6, "touch %s", path_);
+    std::system(dst_path);
 }
 
 void FileOperator::DestoryFileCurPath() {
@@ -69,4 +85,10 @@ void FileOperator::ReadFileBytes() {
 
 void FileOperator::ReadSpecifyLabel() {
 
+}
+
+char* FileOperator::JudgeFilePath() {
+    char* end = path_ + strlen(path_);
+    char* ret = std::find(path_, end, '/');
+    return ret;
 }

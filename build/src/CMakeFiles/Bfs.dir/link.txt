@@ -1,0 +1,2 @@
+/usr/bin/ar qc libBfs.a CMakeFiles/Bfs.dir/log.c.o
+/usr/bin/ranlib libBfs.a

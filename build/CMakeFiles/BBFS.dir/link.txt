@@ -1,0 +1,1 @@
+/usr/bin/cc -D_FILE_OFFSET_BITS=64 -lfuse3 -g CMakeFiles/BBFS.dir/main/bbfs.c.o -o bin/BBFS  src/libBfs.a -lrt -lfuse 

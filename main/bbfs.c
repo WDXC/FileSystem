@@ -34,29 +34,58 @@ static void bb_fullpath(char fpath[PATH_MAX], const char *path) {
           BB_DATA->rootdir, path, fpath);
 }
 
-/*
- * Prototypes for all these funciton and C-style comments
- * come from /usr/include/linux/fuse.h
+///////////////////////////////////////////////////////////
+//
+// Prototypes for all these functions, and the C-style comments,
+// come from /usr/include/fuse.h
+//
+/** Get file attributes.
  *
- * Get file attributes
- *
- * Similar to stat(). The 'st_dev' and 'st_blksize' fields are
- * ignored. The 'st_ino' field is ignored except if the 'use_ino'
- * mount option is given
- * */
+ * Similar to stat().  The 'st_dev' and 'st_blksize' fields are
+ * ignored.  The 'st_ino' field is ignored except if the 'use_ino'
+ * mount option is given.
+ */
 int bb_getattr(const char *path, struct stat *statbuf) {
   int retstat;
   char fpath[PATH_MAX];
-  log_msg("\nbb_getattr(path=\"%s\", link=\"%s\", size=%d)\n", path, link,
+
+  log_msg("\nbb_getattr(path=\"%s\", statbuf=0x%08x)\n", path, statbuf);
+  bb_fullpath(fpath, path);
+
+  retstat = log_syscall("lstat", lstat(fpath, statbuf), 0);
+
+  log_stat(statbuf);
+
+  return retstat;
+}
+
+/** Read the target of a symbolic link
+ *
+ * The buffer should be filled with a null terminated string.  The
+ * buffer size argument includes the space for the terminating
+ * null character.  If the linkname is too long to fit in the
+ * buffer, it should be truncated.  The return value should be 0
+ * for success.
+ */
+// Note the system readlink() will truncate and lose the terminating
+// null.  So, the size passed to to the system readlink() must be one
+// less than the size passed to bb_readlink()
+// bb_readlink() code by Bernardo F Costa (thanks!)
+int bb_readlink(const char *path, char *link, size_t size) {
+  int retstat;
+  char fpath[PATH_MAX];
+
+  log_msg("\nbb_readlink(path=\"%s\", link=\"%s\", size=%d)\n", path, link,
           size);
+  bb_fullpath(fpath, path);
 
   retstat = log_syscall("readlink", readlink(fpath, link, size - 1), 0);
-
   if (retstat >= 0) {
     link[retstat] = '\0';
     retstat = 0;
-    log_msg("     linik=\"%s\"\n", link);
+    log_msg("    link=\"%s\"\n", link);
   }
+
   return retstat;
 }
 
@@ -386,6 +415,47 @@ int bb_setxattr(const char* path, const char* name, const char* value, size_t si
     return log_syscall("lsetxattr", lsetxattr(fpath, name, value, size, flags), 0);
 }
 
+
+/** Get extended attributes */
+int bb_getxattr(const char *path, const char *name, char *value, size_t size) {
+  int retstat = 0;
+  char fpath[PATH_MAX];
+
+  log_msg("\nbb_getxattr(path = \"%s\", name = \"%s\", value = 0x%08x, size = "
+          "%d)\n",
+          path, name, value, size);
+  bb_fullpath(fpath, path);
+
+  retstat = log_syscall("lgetxattr", lgetxattr(fpath, name, value, size), 0);
+  if (retstat >= 0)
+    log_msg("    value = \"%s\"\n", value);
+
+  return retstat;
+}
+
+/** List extended attributes */
+int bb_listxattr(const char *path, char *list, size_t size) {
+  int retstat = 0;
+  char fpath[PATH_MAX];
+  char *ptr;
+
+  log_msg("\nbb_listxattr(path=\"%s\", list=0x%08x, size=%d)\n", path, list,
+          size);
+  bb_fullpath(fpath, path);
+
+  retstat = log_syscall("llistxattr", llistxattr(fpath, list, size), 0);
+  if (retstat >= 0) {
+    log_msg("    returned attributes (length %d):\n", retstat);
+    if (list != NULL)
+      for (ptr = list; ptr < list + retstat; ptr += strlen(ptr) + 1)
+        log_msg("    \"%s\"\n", ptr);
+    else
+      log_msg("    (null)\n");
+  }
+
+  return retstat;
+}
+
 /** Removed extended attibutes */
 int bb_removexattr(const char* path, const char* name) {
     char fpath[PATH_MAX];
@@ -462,4 +532,290 @@ int bb_readdir(const char* path, void* buf, fuse_fill_dir_t filler, off_t offset
     // first call to the system readdir() returns NULL I've got ans error;
     // near as I call tell, that's the only condition under which I can get
     // anerror from readdir()
+    de = readdir(dp);
+    log_msg("     readdir returned 0x%p\n", de);
+    if (de == 0) {
+        retstat = log_error("bb_readdir readdir");
+        return retstat;
+    }
+
+    // This will copy the entire directory into the buffer. The loop exits
+    // when either the system readdir() returns NULL , or filler()
+    // returns something non-zero. The first case just means I've
+    // read the whole directory; the second means the buffer is full
+    do {
+        log_msg("calling filler with name %s\n", de->d_name);
+        if (filler(buf, de->d_name, NULL, 0) != 0) {
+            log_msg("      ERROR bb_readdir filler: buffer full");
+            return -ENOMEM;
+        }
+    } while ( (de = readdir(dp)) != NULL );
+
+    log_fi(fi);
+    return retstat;
+}
+
+/**
+ * Release directory
+ *
+ * Introduced in version 2.3
+ * */
+int bb_releasedir(const char* path, struct fuse_file_info* fi) {
+    int retstat = 0;
+    log_msg("\nbb_releasedir(path=\"%s\", fi=0x%08x)\n", path, fi);
+    log_fi(fi);
+    closedir( (DIR*) (uintptr_t) fi->fh );
+
+    return retstat;
+}
+
+/**
+ * Synchronize directory contents
+ *
+ * If the datasync parameter is non-zero, then only the user data
+ * should be flushed, not the meta data
+ *
+ * Introduced in version 2.3
+ *
+ * When exactly is this called? when a user calls fsync and it 
+ * happends to be a directory? >>> I need to implement this..
+ * */
+int bb_fsyncdir(const char* path, int datasync, struct fuse_file_info* fi) {
+    int retstat = 0;
+
+    log_msg("\nbb_fsyncdir(path=\"%s\", datasync=%d, fi=0x%08x)\n", path, datasync, fi);
+    log_fi(fi);
+    return retstat;
+}
+
+/**
+ * Initialize filesystem
+ *
+ * The return value will passed in the private_data field of 
+ * fuse_context to all file operations and as a parameter to the 
+ * destroy() method
+ *
+ * Introduced in version 2.3
+ * Changed in version 2.6
+ *
+ * Undocumented but extraordinarily useful fact: the fuse_context is
+ * set up before this function is called, and
+ * fuse_get_context()->private_data returns the user_data passed to 
+ * fuse_main(). Really seems like either it should be a third 
+ * parameter coming in here. or else the fact should be documented
+ * (and this might as well return void, as it did in order versions of FUSE)
+ * */
+void* bb_init(struct fuse_conn_info* conn) {
+    log_msg("\nbb_init()\n");
+
+    log_conn(conn);
+    log_fuse_context(fuse_get_context());
+
+    return BB_DATA;
+}
+
+/**
+ * Clean up filesystem
+ * called on filesystem exit
+ * introduceed in version 2.3
+ * */
+void bb_destroy(void* userdata) {
+    log_msg("\nbb_destroy(userdata=0x%08x)\n", userdata);
+}
+
+/**
+ * Check file access permissions
+ * 
+ * This will be called for the access() system call. If the 
+ * 'default_permission' mount option is given, this method is not called.
+ * 
+ * This method is not called under linux kernel version  2.4.x
+ * Introduced in version 2.5
+ * */
+int bb_access(const char* path, int mask) {
+    int retstat = 0;
+    char fpath[PATH_MAX];
+
+    log_msg("\nbb_access(path=\"%s\", mask=0%o)\n", path, mask);
+    bb_fullpath(fpath, path);
+    
+    retstat = access(fpath, mask);
+
+    if (retstat < 0) {
+        retstat = log_error("bb_access access");
+    }
+
+    return retstat;
+}
+
+
+/**
+ * Create and open a file
+ *
+ * If the file dose not exist, first create it with the specified
+ * mode, and then open it
+ *
+ * If this method is not implemented or under kernel
+ * versions earlier than 2.6.15, the mknod() and open() methods
+ * will be called instaed.
+ *
+ * Introduced in version 2.5
+ *
+ * Not implemented. I had a version that used create() to create and
+ * opne the file, which it turned out opened the file write-only
+ * */
+
+/**
+ * Change the size of an open file
+ *
+ * The method is called instead of the truncate() method if the
+ * truncation was invoked from ans ftruncate() system call
+ *
+ * If this method is not implemented or under Linux kernel
+ * version earlier than 2.6.15, the truncate() method will be
+ * called instead.
+ * */
+
+int bb_ftruncate(const char* path, off_t offset, struct fuse_file_info* fi) {
+    int retstat = 0;
+
+    log_msg("\nbb_ftruncate(path=\"%s\", offset=%lld, fi=0x%08x)\n", path, offset, fi);
+
+    log_fi(fi);
+
+    retstat = ftruncate(fi->fh, offset);
+    if (retstat < 0) {
+        retstat = log_error("bb_ftruncate ftruncate");
+    }
+    return retstat;
+}
+
+
+/**
+ * Get attributes from an open file
+ * this method is called instead of the getattr() method if the
+ * file information is available.
+ *
+ * Currently this is only called after the create() method if that
+ * is implemented (see above). Later it may be called for invocations of 
+ * fstat() too
+ * */
+int bb_fgetattr(const char* path, struct stat* statbuf, 
+                struct fuse_file_info* fi) {
+    int retstat = 0;
+
+    log_msg("\nbb_fgetattr(path=\"%s\", statbuf=0x%08x, fi=0x%08x)\n", path,
+            statbuf, fi);
+    log_fi(fi);
+
+    // On FreeBSD, trying to do anything with the mountpoint ends up 
+    // opening it, and then using the FD for an fgetattr. So in the special case
+    // of a path of "/", I need to do a getattr on the underlying root directory
+    // instead of doing the fgetattr()
+    if (!strcmp(path, "/")) {
+        return bb_getattr(path, statbuf);
+    }
+    retstat = fstat(fi->fh, statbuf);
+
+    if (retstat < 0) {
+        retstat = log_error("bb_fgetattr fstat");
+    }
+    log_stat(statbuf);
+    return retstat;
+}
+
+struct fuse_operations bb_oper = {
+    .getattr    = bb_getattr,
+    .readlink   = bb_readlink,
+    .getdir     = NULL,
+    .mknod      = bb_mknod,
+    .mkdir      = bb_mkdir,
+    .unlink     = bb_unlink,
+    .rmdir      = bb_rmdir,
+    .symlink    = bb_symlink,
+    .rename     = bb_rename,
+    .link       = bb_link,
+    .chmod      = bb_chmod,
+    .chown      = bb_chown,
+    .truncate   = bb_truncate,
+    .utime      = bb_utime,
+    .open       = bb_open,
+    .read       = bb_read,
+    .write      = bb_write,
+    .statfs     = bb_statfs,
+    .flush      = bb_flush,
+    .release    = bb_release,
+    .fsync      = bb_fsync,
+#ifdef HAVE_SYS_XATTR_H
+    .setxattr   = bb_setxattr,
+    .getxattr   = bb_getxattr,
+    .listxattr  = bb_listxattr,
+    .removexattr = bb_removexattr,
+#endif
+    .opendir    = bb_opendir,
+    .readdir    = bb_readdir,
+    .releasedir = bb_releasedir,
+    .fsyncdir   = bb_fsyncdir,
+    .init       = bb_init,
+    .destroy    = bb_destroy,
+    .access     = bb_access,
+    .ftruncate  = bb_ftruncate,
+    .fgetattr   = bb_fgetattr
+};
+
+void bb_usage () {
+    fprintf(stderr, "usage: bbfs [FUSE and mount options] rootDir mountPoint\n");
+    abort();
+}
+
+int main(int argc, char** argv) {
+    int fuse_stat;
+    struct bb_state *bb_data;
+
+    // bbfs doesn't do any access checking on its own ( the comment
+    // blocks in fuse.h mention some of the functions that need access
+    // checked -- buf note there are other functions, like
+    // chown(), that also, need checking!). Since runing bbfs as root will
+    // therefore open Metrodome-sized holes in the system
+    // security, we'll check if root is trying to mount the filesystem
+    // and refuse if it is. The somewhat smailer hole of an orinary user doing
+    // it whit the allow_other flag is still there because I don't want to parse
+    // the options string.
+    if ( (getuid() == 0) || (geteuid() == 0) ) {
+        fprintf(stderr, "Running BBFS as root opens unnacceptable security holes\n");
+        return 1;
+    }
+
+    // see which version of fuse we're running 
+    fprintf(stderr, "Fuse library version %d.%d\n", FUSE_MAJOR_VERSION, FUSE_MINOR_VERSION);
+
+    // Perform some sanity checking on the command line: make sure
+    // there are enough arguments, and that neither of the last two
+    // start with a hyphen (this will break if you actually have a 
+    // rootpoint or mountpoint whose name starts with a hyphen, but
+    // so will a zillion other programs)
+    if ( (argc < 3) || (argv[argc-2][0] == '-') || (argv[argc-1][0] == '-') ) {
+        bb_usage();
+        return;
+    }
+
+    bb_data = malloc(sizeof (struct bb_state));
+    if (bb_data == NULL) {
+        perror("main calloc");
+        abort();
+    }
+
+    bb_data->rootdir = realpath(argv[argc - 2], NULL);
+    argv[argc - 2] = argv[argc - 1];
+    argv[argc - 1] = NULL;
+    argc--;
+
+    bb_data->logfile = log_open();
+
+    // turn over control to fuse
+    fprintf(stderr, "about to call fuse_main\n");
+    fuse_stat = fuse_main(argc, argv, &bb_oper, bb_data);
+    fprintf(stderr, "fuse_main returned %d\n", fuse_stat);
+    
+    return fuse_stat;
 }

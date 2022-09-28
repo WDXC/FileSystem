@@ -159,7 +159,7 @@ void log_retstat(char* func, int retstat) {
     errno = errsave;
 }
 
-int log_syscall(char* func, int retstat) {
+int log_syscall(char *func, int retstat, int min_ret) {
     log_retstat(func, retstat);
 
     if (retstat < min_ret) {
@@ -238,7 +238,7 @@ void log_statvfs(struct statvfs* sv) {
     log_struct(sv, f_ffree, %lld, );
 
     // fsfilcnt_t f_favail; /* # free inodes */
-    log_struct(sv, f_favail, %lld);
+    log_struct(sv, f_favail, %lld, );
 
     // unsiged long f_fsid /* file system ID*/
     log_struct(sv, f_flag, 0x%08lx, );

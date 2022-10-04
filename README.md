@@ -14,7 +14,7 @@
   * 应用moduo库，重新使用C++11设计
 ## 前端界面
 前端界面是一个十分重要的对外展示的窗口，规划的界面效果图如下所示:
-![avatar](../asset/filemanager_react.png)
+![avatar](./asset/filemanager_react.png)
 包含的功能有:
 1. 文件操作
   * 剪切

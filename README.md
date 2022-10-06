@@ -15,8 +15,6 @@
     * 网络库应用
     * 应用moduo库，C++11重制
 
-详细的需求分析文档在这里: [需求分析](./doc/Requirements_anaylysis.md)
-
 ## 前端界面
 前端界面是一个十分重要的对外展示的窗口，规划的界面效果图如下所示:
 ![avatar](./asset/filemanager_react.png)
